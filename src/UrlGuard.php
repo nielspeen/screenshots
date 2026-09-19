@@ -138,7 +138,16 @@ final class UrlGuard
             }
 
             $status = (int) $m[1];
-            $location = array_change_key_case($headers)['location'] ?? null;
+            $headers = array_change_key_case($headers);
+
+            // Cloudflare wants to see a real browser before it shows the site. Chrome is one, and
+            // checks afterwards whether it got through.
+            $mitigated = $headers['cf-mitigated'] ?? null;
+            if ((is_array($mitigated) ? end($mitigated) : $mitigated) === 'challenge') {
+                return;
+            }
+
+            $location = $headers['location'] ?? null;
             if ($status >= 300 && $status < 400 && $location !== null) {
                 $location = is_array($location) ? end($location) : $location;
                 try {

@@ -52,6 +52,8 @@ final class Chrome
             '--hide-scrollbars',
             '--force-device-scale-factor=1',
             '--host-resolver-rules=' . self::blockedHosts(),
+            // Prints the final page on stdout, which tells us where Chrome really ended up.
+            '--dump-dom',
             '--user-data-dir=' . $home . '/profile',
             '--window-size=' . $width . ',' . $height,
             '--screenshot=' . $target,
@@ -59,12 +61,15 @@ final class Chrome
         if ($this->waitMs > 0) {
             $command[] = '--virtual-time-budget=' . $this->waitMs;
         }
+        if (($userAgent = $this->userAgent()) !== null) {
+            $command[] = '--user-agent=' . $userAgent;
+        }
         $command = [...$command, ...$this->extraArgs, $url];
 
         try {
             $process = proc_open($command, [
                 0 => ['file', '/dev/null', 'r'],
-                1 => ['file', '/dev/null', 'w'],
+                1 => ['file', $home . '/dom.html', 'w'],
                 2 => ['file', $home . '/stderr.log', 'w'],
             ], $pipes, $home, ['HOME' => $home] + getenv());
             if (!is_resource($process)) {
@@ -81,9 +86,34 @@ final class Chrome
                 error_log("screenshots: Chrome exited with $exit for $url: " . substr(trim($stderr), -1000));
                 throw new HttpError(500, 'Rendering failed');
             }
+            if (self::isBotCheck((string) @file_get_contents($home . '/dom.html', false, null, 0, 1024 * 1024))) {
+                @unlink($target);
+                throw new HttpError(UrlGuard::TARGET_FAILED, "Blocked by the site's bot protection");
+            }
         } finally {
             Cache::remove($home);
         }
+    }
+
+    /** Is this page Cloudflare's "Just a moment..." challenge rather than the site behind it? */
+    public static function isBotCheck(string $dom): bool
+    {
+        return str_contains($dom, '_cf_chl_opt');
+    }
+
+    /**
+     * What this Chrome sends when it is not headless. "HeadlessChrome" gets challenged as a bot
+     * by many sites on sight; built from the installed version, so there is nothing to keep up
+     * to date. Null (Chrome's default) if the version can't be read.
+     */
+    private function userAgent(): ?string
+    {
+        exec(escapeshellarg($this->binary) . ' --version 2>/dev/null', $output);
+        if (!preg_match('/(\d+)\.\d+\.\d+\.\d+/', implode(' ', $output), $m)) {
+            return null;
+        }
+
+        return "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$m[1].0.0.0 Safari/537.36";
     }
 
     /**

@@ -5,6 +5,7 @@
 declare(strict_types=1);
 
 use Screenshots\Cache;
+use Screenshots\Chrome;
 use Screenshots\HttpError;
 use Screenshots\Image;
 use Screenshots\Locks;
@@ -203,6 +204,12 @@ check('a third one is refused', $locks->acquire(['slot-1', 'slot-2'], 0) === nul
 $locks->release($first);
 $third = $locks->acquire(['slot-1', 'slot-2'], 0);
 check('until one is released', $third !== null);
+
+// --- Chrome -----------------------------------------------------------------
+
+check('recognises a Cloudflare challenge page', Chrome::isBotCheck('<html><head><title>Just a moment...</title><script>window._cf_chl_opt = {cvId: "3"};</script>'));
+check('not fooled by the bot detection script on a normal Cloudflare site', !Chrome::isBotCheck('<html><head><title>Shop</title><script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>'));
+check('an empty page is not a challenge', !Chrome::isBotCheck(''));
 
 // --- Image ------------------------------------------------------------------
 

@@ -36,7 +36,7 @@ Errors are plain text:
 | `400`  | Missing or invalid parameter. The message lists the allowed values.                      |
 | `401`  | The request carries a key, but not a valid one.                                          |
 | `403`  | The URL, or something it redirects to, is not on a whitelisted domain. With a key: it points into a private network. |
-| `424`  | The page could not be reached, did not answer with a 2xx, or did not finish loading within `render_timeout` seconds. |
+| `424`  | The page could not be reached, did not answer with a 2xx, did not finish loading within `render_timeout` seconds, or kept Chrome behind its bot check. |
 | `500`  | Chrome failed; see PHP's error log.                                                      |
 | `503`  | All render slots stayed busy for `queue_timeout` seconds. Comes with `Retry-After`.      |
 
@@ -126,6 +126,13 @@ user; it deletes what is expired regardless of disk space.
 holding them and can't get stuck. A per-URL lock makes simultaneous requests for the same
 uncached screenshot wait for one render instead of all starting their own. A pool of
 `max_concurrent` slot locks limits how many Chrome instances run at the same time.
+
+**Bot checks.** Chrome introduces itself as ordinary Chrome (built from the installed version)
+instead of `HeadlessChrome`, which many sites challenge on sight. When the preflight runs into a
+Cloudflare challenge (`cf-mitigated: challenge`) it steps aside and lets Chrome try, since a real
+browser usually gets through. Chrome also hands over the HTML of the page it ended up on, and if
+that is still the challenge, the answer is a `424` rather than a month of "Just a moment..." in
+the cache. Sites that block the server's address range outright can't be captured from it.
 
 **Security.** The whitelist is what stands between the internet and a browser running on your
 server, so:
