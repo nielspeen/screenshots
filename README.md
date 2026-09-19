@@ -36,9 +36,12 @@ Errors are plain text:
 | `400`  | Missing or invalid parameter. The message lists the allowed values.                      |
 | `401`  | The request carries a key, but not a valid one.                                          |
 | `403`  | The URL, or something it redirects to, is not on a whitelisted domain. With a key: it points into a private network. |
-| `502`  | The page could not be reached, did not answer with a 2xx, or Chrome failed (see PHP's error log). |
+| `424`  | The page could not be reached, did not answer with a 2xx, or did not finish loading within `render_timeout` seconds. |
+| `500`  | Chrome failed; see PHP's error log.                                                      |
 | `503`  | All render slots stayed busy for `queue_timeout` seconds. Comes with `Retry-After`.      |
-| `504`  | Chrome did not finish within `render_timeout` seconds.                                   |
+
+`424` rather than `502`/`504`, because proxies such as Cloudflare replace those with an error page
+of their own and the reason would never reach the caller.
 
 ## Setup
 

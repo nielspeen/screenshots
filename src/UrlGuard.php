@@ -10,6 +10,13 @@ final class UrlGuard
     private const MAX_REDIRECTS = 5;
 
     /**
+     * "Failed Dependency": the page let us down, not the caller and not us. 502 and 504 would be
+     * the obvious choice, but proxies like Cloudflare replace those with an error page of their
+     * own, and the caller never gets to read why.
+     */
+    public const TARGET_FAILED = 424;
+
+    /**
      * @param list<string> $domains
      * @param bool $anyPublicHost trusted caller: hosts off the whitelist are fine, if they are on the public internet
      * @param (\Closure(string): list<string>)|null $resolver host to IP addresses; for tests
@@ -127,7 +134,7 @@ final class UrlGuard
         for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
             $headers = @get_headers($url, true, $context);
             if ($headers === false || !preg_match('#^HTTP/\S+\s+(\d{3})#', (string) $headers[0], $m)) {
-                throw new HttpError(502, 'Target could not be reached');
+                throw new HttpError(self::TARGET_FAILED, 'Target could not be reached');
             }
 
             $status = (int) $m[1];
@@ -145,10 +152,10 @@ final class UrlGuard
                 return;
             }
 
-            throw new HttpError(502, "Target responded with HTTP $status");
+            throw new HttpError(self::TARGET_FAILED, "Target responded with HTTP $status");
         }
 
-        throw new HttpError(502, 'Target redirects too often');
+        throw new HttpError(self::TARGET_FAILED, 'Target redirects too often');
     }
 
     /** Resolves a Location header against the (normalized) URL it came from. */

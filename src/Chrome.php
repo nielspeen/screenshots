@@ -68,18 +68,18 @@ final class Chrome
                 2 => ['file', $home . '/stderr.log', 'w'],
             ], $pipes, $home, ['HOME' => $home] + getenv());
             if (!is_resource($process)) {
-                throw new HttpError(502, 'Could not start Chrome');
+                throw new HttpError(500, 'Could not start Chrome');
             }
             $exit = proc_close($process);
 
             if ($exit === 124 || $exit === 137) {
-                throw new HttpError(504, 'Rendering timed out');
+                throw new HttpError(UrlGuard::TARGET_FAILED, 'Rendering timed out');
             }
             clearstatcache(true, $target);
             if ($exit !== 0 || !is_file($target) || !@getimagesize($target)) {
                 $stderr = (string) @file_get_contents($home . '/stderr.log');
                 error_log("screenshots: Chrome exited with $exit for $url: " . substr(trim($stderr), -1000));
-                throw new HttpError(502, 'Rendering failed');
+                throw new HttpError(500, 'Rendering failed');
             }
         } finally {
             Cache::remove($home);
