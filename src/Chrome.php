@@ -97,6 +97,9 @@ final class Chrome
         foreach (range(16, 31) as $second) {
             $patterns[] = "172.$second.*";
         }
+        foreach (range(64, 127) as $second) {
+            $patterns[] = "100.$second.*"; // CGNAT, which is where Tailscale lives
+        }
 
         return implode(', ', array_map(fn (string $p) => "MAP $p ~NOTFOUND", $patterns));
     }

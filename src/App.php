@@ -6,6 +6,9 @@ namespace Screenshots;
 
 /**
  * GET /?url=https://example.com/&size=1280x800&thumb=400&format=webp&fresh=1
+ *
+ * The url has to be on a whitelisted domain, unless the request carries one of the configured
+ * keys: then any host on the public internet will do.
  */
 final class App
 {
@@ -13,13 +16,13 @@ final class App
     private const KEY_LOCKS = 32;
 
     private UrlGuard $guard;
+    private bool $trusted = false;
     private Cache $cache;
     private Locks $locks;
 
     /** @param array<string, mixed> $config */
     public function __construct(private array $config)
     {
-        $this->guard = new UrlGuard($config['domains']);
         $this->cache = new Cache($config['var_dir'], $config['ttl'], $config['min_free_mb'] * 1024 * 1024);
         $this->locks = new Locks($config['var_dir'] . '/locks');
     }
@@ -41,6 +44,9 @@ final class App
         if (!in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['GET', 'HEAD'], true)) {
             throw new HttpError(405, 'Method not allowed', ['Allow' => 'GET, HEAD']);
         }
+
+        $this->trusted = $this->hasValidKey();
+        $this->guard = new UrlGuard($this->config['domains'], $this->trusted);
 
         $url = $this->guard->normalize($this->param('url') ?? throw new HttpError(400, 'Missing "url" parameter'));
         $size = $this->oneOf('size', $this->config['sizes']);
@@ -162,7 +168,9 @@ final class App
         header('Content-Type: ' . Image::TYPES[$format]);
         header('ETag: ' . $etag);
         header('Last-Modified: ' . gmdate('D, d M Y H:i:s', $stat['mtime']) . ' GMT');
-        header('Cache-Control: ' . ($refresh ? 'no-store' : 'public, max-age=' . $maxAge));
+        // What a key unlocked must not end up in a shared cache, where it is served without one.
+        $visibility = $this->trusted ? 'private' : 'public';
+        header('Cache-Control: ' . ($refresh ? 'no-store' : $visibility . ', max-age=' . $maxAge));
         header('X-Cache: ' . ($hit ? 'HIT' : 'MISS'));
 
         $since = strtotime($_SERVER['HTTP_IF_MODIFIED_SINCE'] ?? '');
@@ -178,6 +186,24 @@ final class App
             }
         }
         fclose($handle);
+    }
+
+    /** "Authorization: Bearer <key>". A wrong key is an error, so a typo doesn't pass for "no key". */
+    private function hasValidKey(): bool
+    {
+        $header = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+        if (!is_string($header) || $header === '') {
+            return false;
+        }
+
+        $given = (string) preg_replace('/^Bearer\s+/i', '', $header);
+        foreach ($this->config['keys'] as $key) {
+            if (is_string($key) && $key !== '' && hash_equals($key, $given)) {
+                return true;
+            }
+        }
+
+        throw new HttpError(401, 'Invalid API key');
     }
 
     /**

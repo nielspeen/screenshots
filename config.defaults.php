@@ -10,6 +10,12 @@ return [
     // '*.example.com' matches any subdomain (but not example.com itself).
     'domains' => [],
 
+    // Secrets of trusted callers, e.g. ['directory' => '<long random string>']; the names are
+    // only there for you. A request with "Authorization: Bearer <secret>" may screenshot any
+    // host on the public internet instead of just the whitelisted ones. For server to server
+    // use: never put a key in a web page. Read the security notes in the README first.
+    'keys' => [],
+
     // Allowed viewports as WIDTHxHEIGHT (?size=). The first one is the default.
     'sizes' => ['1280x800', '1920x1080', '768x1024', '390x844'],
 

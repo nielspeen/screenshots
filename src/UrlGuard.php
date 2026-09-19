@@ -9,9 +9,16 @@ final class UrlGuard
 {
     private const MAX_REDIRECTS = 5;
 
-    /** @param list<string> $domains */
-    public function __construct(private array $domains)
-    {
+    /**
+     * @param list<string> $domains
+     * @param bool $anyPublicHost trusted caller: hosts off the whitelist are fine, if they are on the public internet
+     * @param (\Closure(string): list<string>)|null $resolver host to IP addresses; for tests
+     */
+    public function __construct(
+        private array $domains,
+        private bool $anyPublicHost = false,
+        private ?\Closure $resolver = null,
+    ) {
     }
 
     /**
@@ -47,7 +54,10 @@ final class UrlGuard
             throw new HttpError(400, 'Invalid host');
         }
         if (!$this->allows($host)) {
-            throw new HttpError(403, "Domain not whitelisted: $host");
+            if (!$this->anyPublicHost) {
+                throw new HttpError(403, "Domain not whitelisted: $host");
+            }
+            $this->assertPublic($host);
         }
 
         $query = isset($parts['query']) ? '?' . $parts['query'] : '';
@@ -72,9 +82,38 @@ final class UrlGuard
     }
 
     /**
-     * Makes sure the URL ends in a 2xx response without leaving the whitelist.
-     * Chrome happily screenshots error pages and follows any redirect, and we
-     * don't want either of those cached for a month.
+     * Hosts we know nothing about must not lead into our own network: no loopback, private,
+     * link-local (cloud metadata) or CGNAT (Tailscale) addresses. Chrome resolves the name
+     * again by itself, so this is a courtesy check; the real fence is the server's firewall.
+     */
+    private function assertPublic(string $host): void
+    {
+        $addresses = $this->resolver ? ($this->resolver)($host) : self::addressesOf($host);
+        if ($addresses === []) {
+            throw new HttpError(400, "Host does not resolve: $host");
+        }
+        foreach ($addresses as $address) {
+            if (!filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_GLOBAL_RANGE)) {
+                throw new HttpError(403, "Host is not on the public internet: $host");
+            }
+        }
+    }
+
+    /** @return list<string> */
+    private static function addressesOf(string $host): array
+    {
+        $addresses = gethostbynamel($host) ?: [];
+        foreach (@dns_get_record($host, DNS_AAAA) ?: [] as $record) {
+            $addresses[] = $record['ipv6'];
+        }
+
+        return $addresses;
+    }
+
+    /**
+     * Makes sure the URL ends in a 2xx response and that every redirect on the way
+     * is a URL we would have accepted as well. Chrome happily screenshots error pages
+     * and follows any redirect, and we don't want either of those cached for a month.
      */
     public function preflight(string $url): void
     {

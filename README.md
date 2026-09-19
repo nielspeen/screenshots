@@ -6,6 +6,7 @@ A small HTTP API that returns screenshots of web pages, for whitelisted domains 
 - Renders with headless Chrome, one short-lived process per screenshot.
 - Results are cached on disk for 30 days. When the disk runs low on space, the oldest screenshots are deleted.
 - No authentication: the API only renders pages on domains you list, so there is nothing to abuse it for.
+- Optionally, a secret key lets your own back ends screenshot any public site.
 
 ## API
 
@@ -23,12 +24,18 @@ The response is the image itself, so the URL can go straight into an `<img src>`
 `Cache-Control`, `ETag` and `Last-Modified` (conditional requests get a `304`), plus
 `X-Cache: HIT|MISS` to tell whether Chrome had to run. A miss takes a few seconds.
 
+A request with `Authorization: Bearer <key>`, where the key is one of the configured `keys`, is
+not held to the whitelist: it may screenshot any host on the public internet. That is meant for
+your own servers (a job that captures third-party sites, say), never for a web page, where the
+key would be there for everyone to read. Responses to such requests are `Cache-Control: private`.
+
 Errors are plain text:
 
 | Status | Meaning                                                                                  |
 |--------|------------------------------------------------------------------------------------------|
 | `400`  | Missing or invalid parameter. The message lists the allowed values.                      |
-| `403`  | The URL, or something it redirects to, is not on a whitelisted domain.                   |
+| `401`  | The request carries a key, but not a valid one.                                          |
+| `403`  | The URL, or something it redirects to, is not on a whitelisted domain. With a key: it points into a private network. |
 | `502`  | The page could not be reached, did not answer with a 2xx, or Chrome failed (see PHP's error log). |
 | `503`  | All render slots stayed busy for `queue_timeout` seconds. Comes with `Retry-After`.      |
 | `504`  | Chrome did not finish within `render_timeout` seconds.                                   |
@@ -130,9 +137,41 @@ server, so:
   and private addresses, in case a whitelisted page redirects there with JavaScript or embeds
   something from there. This does not catch public hostnames that resolve to a private
   address. If the server can reach sensitive internal services, firewall the web server's user.
+- With a key the whitelist is out of the picture, so the host, and every redirect, must resolve
+  to public addresses only: no loopback, private, link-local (cloud metadata) or CGNAT
+  (Tailscale) ranges.
 - Every render gets a throwaway profile and `HOME`, deleted afterwards. No cookies or cache
   carry over from one page to the next.
 - Chrome is started without a shell, under `timeout`, which kills the whole process group.
+
+### Before you hand out a key
+
+A key turns the server into a browser that visits pages you don't control, and such a page can
+try to reach your internal network *through* that browser. The checks above look at a name once;
+Chrome resolves it again by itself (DNS rebinding), and a page can redirect with JavaScript or
+embed whatever it likes. Treat them as a first line and put the real fence in the firewall:
+forbid the web server's user (PHP and Chrome run as it) to open connections to anything internal.
+With ufw, add this to `/etc/ufw/before.rules`, above its `-A ufw-before-output -o lo -j ACCEPT`
+line, and the same for `::1`, `fc00::/7` and `fe80::/10` (chain `ufw6-before-output`) to
+`/etc/ufw/before6.rules`. Check with `iptables-restore -n --test < /etc/ufw/before.rules` before
+you `ufw reload`:
+
+```
+-A ufw-before-output -m owner --uid-owner www-data -d 127.0.0.53 -p udp --dport 53 -j ACCEPT
+-A ufw-before-output -m owner --uid-owner www-data -d 127.0.0.53 -p tcp --dport 53 -j ACCEPT
+-A ufw-before-output -m owner --uid-owner www-data -m conntrack --ctstate NEW -d 0.0.0.0/8 -j REJECT
+-A ufw-before-output -m owner --uid-owner www-data -m conntrack --ctstate NEW -d 127.0.0.0/8 -j REJECT
+-A ufw-before-output -m owner --uid-owner www-data -m conntrack --ctstate NEW -d 10.0.0.0/8 -j REJECT
+-A ufw-before-output -m owner --uid-owner www-data -m conntrack --ctstate NEW -d 100.64.0.0/10 -j REJECT
+-A ufw-before-output -m owner --uid-owner www-data -m conntrack --ctstate NEW -d 169.254.0.0/16 -j REJECT
+-A ufw-before-output -m owner --uid-owner www-data -m conntrack --ctstate NEW -d 172.16.0.0/12 -j REJECT
+-A ufw-before-output -m owner --uid-owner www-data -m conntrack --ctstate NEW -d 192.168.0.0/16 -j REJECT
+```
+
+The first two lines keep DNS through systemd-resolved working. `--ctstate NEW` only stops
+connections the user *opens*; nginx, which runs as the same user, can still answer visitors that
+come in over a private network or a VPN. Keep Chrome updated (add its apt origin to
+unattended-upgrades), since it now meets the open web.
 
 ## Limitations
 

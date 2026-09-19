@@ -102,6 +102,36 @@ foreach ($resolved as [$base, $location, $expected]) {
     check("resolves $location against $base", UrlGuard::resolve($base, $location) === $expected);
 }
 
+// A caller with a key may go off the whitelist, but not into our own network.
+$dns = [
+    'vendor.test' => ['93.184.215.14', '2606:2800:21f:cb07:6820:80da:af6b:8b2c'],
+    'loopback.test' => ['127.0.0.1'],
+    'metadata.test' => ['169.254.169.254'],
+    'lan.test' => ['192.168.1.10'],
+    'tailnet.test' => ['100.101.102.103'],
+    'tailnet6.test' => ['fd7a:115c:a1e0::1'],
+    'mixed.test' => ['93.184.215.14', '10.0.0.5'],
+    'mapped.test' => ['::ffff:127.0.0.1'],
+    'example.com' => ['10.0.0.5'],
+];
+$trusted = new UrlGuard(['example.com'], true, fn (string $host) => $dns[$host] ?? []);
+
+check('key: accepts a public host off the whitelist', normalize($trusted, 'https://vendor.test/pricing') === 'https://vendor.test/pricing');
+check('key: whitelisted hosts stay allowed wherever they point', normalize($trusted, 'https://example.com/') === 'https://example.com/');
+foreach (['loopback', 'metadata', 'lan', 'tailnet', 'tailnet6', 'mixed', 'mapped'] as $name) {
+    check("key: rejects a host resolving to a $name address", normalize($trusted, "https://$name.test/") === 403);
+}
+check('key: rejects a host that does not resolve', normalize($trusted, 'https://nowhere.test/') === 400);
+check('key: url rules still apply', normalize($trusted, 'https://vendor.test:8443/') === 400 && normalize($trusted, 'ftp://vendor.test/') === 400);
+check('no key: the same public host is refused', normalize($guard, 'https://vendor.test/') === 403);
+
+$real = new UrlGuard([], true);
+check('key: real resolver rejects localhost and literal internal addresses', normalize($real, 'http://localhost/') === 403
+    && normalize($real, 'http://127.0.0.1/') === 403
+    && normalize($real, 'http://2130706433/') === 403
+    && normalize($real, 'http://169.254.169.254/latest/meta-data') === 403
+    && normalize($real, 'http://100.100.100.100/') === 403);
+
 // --- Cache ------------------------------------------------------------------
 
 const MB = 1024 * 1024;
