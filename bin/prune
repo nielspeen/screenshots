@@ -1,0 +1,16 @@
+#!/usr/bin/env php
+<?php
+
+// Optional: the API prunes itself whenever disk space runs low. Run this from
+// cron (as the web server's user) if you also want expired screenshots gone
+// before the disk fills up.
+
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+
+$config = Screenshots\Config::load(dirname(__DIR__));
+$cache = new Screenshots\Cache($config['var_dir'], $config['ttl'], $config['min_free_mb'] * 1024 * 1024);
+
+[$deleted, $freed] = $cache->prune();
+printf("Deleted %d files, freed %.1f MB\n", $deleted, $freed / 1024 / 1024);

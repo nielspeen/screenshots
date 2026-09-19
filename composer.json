@@ -1,0 +1,22 @@
+{
+    "name": "nielspeen/screenshots",
+    "description": "Minimal screenshot API for whitelisted domains",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.2",
+        "ext-gd": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Screenshots\\": "src/"
+        }
+    },
+    "scripts": {
+        "test": "php tests/run.php",
+        "serve": "php -S 127.0.0.1:8080 -t public"
+    },
+    "config": {
+        "process-timeout": 0
+    }
+}
