@@ -93,9 +93,18 @@ Things to know about the server:
   found automatically, or set `chrome` in the config.
 - **Fonts.** A server has almost none. Install at least `fonts-liberation`, `fonts-noto-core` and
   `fonts-noto-color-emoji`, or text renders as boxes.
-- **Sandbox.** Chrome runs with its sandbox enabled. If it refuses to start (running as root, in a
-  container, or with user namespaces disabled), add `'chrome_args' => ['--no-sandbox']`. Chrome's
-  stderr ends up in PHP's error log when a render fails.
+- **Sandbox.** Chrome runs with its sandbox enabled, which needs user, PID and network namespaces.
+  Some PHP-FPM packages (packages.sury.org's, for one) ship a systemd unit with
+  `RestrictNamespaces=true`, which Chrome inherits: every render then fails with "Failed to move to
+  new namespace" in the error log. Allow just those three with `systemctl edit php8.5-fpm` (your
+  PHP version) and restart FPM:
+  ```ini
+  [Service]
+  RestrictNamespaces=user pid net
+  ```
+  If Chrome can't sandbox itself at all (running as root, in a container, or with user namespaces
+  disabled), add `'chrome_args' => ['--no-sandbox']`, though not on a server that renders pages
+  for a key. Chrome's stderr ends up in PHP's error log when a render fails.
 - **Timeouts.** A request that has to queue can take 2 × `queue_timeout` + `render_timeout`
   seconds (55 by default), plus the preflight. Keep `fastcgi_read_timeout` and FPM's
   `request_terminate_timeout` above that.
